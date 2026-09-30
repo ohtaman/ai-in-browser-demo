@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>04. 災害時START式トリアージ判定支援 (完全オフライン推論)</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+  <style>
+    .runtime-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .runtime-row select {
+      flex: 1;
+      min-width: 260px;
+    }
+    .action-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 14px;
+    }
+    .constraint-card {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      margin-top: 14px;
+    }
+    .constraint-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--text-main);
+      cursor: pointer;
+      user-select: none;
+    }
+    .constraint-label input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      accent-color: var(--accent-blue);
+      cursor: pointer;
+    }
+    .badge-recommended {
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid var(--success-border);
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 9999px;
+    }
+    .constraint-desc {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-top: 6px;
+      margin-bottom: 0;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-wrapper">
+    <a href="../index.html" class="nav-back">← デモ一覧へ戻る</a>
+
+    <header class="app-header">
+      <span class="badge-tag">Fine-Tuned Gemma 4 E2B • Client-Side WebGPU</span>
+      <h1 class="app-title">災害時START式トリアージ判定支援</h1>
+      <p class="app-subtitle">
+        通信途絶・完全オフライン下でも、ブラウザ単体で患者の緊急度判定・JSON構造化出力を実行
+      </p>
+    </header>
+
+    <div class="panel">
+      <label for="runtime">実行エンジンの選択:</label>
+      <div class="runtime-row">
+        <select id="runtime">
+          <option value="transformers">Transformers.js (ONNX Runtime Web)</option>
+          <option value="litert">LiteRT-LM.js (@litert-lm/core)</option>
+          <option value="webllm">WebLLM (@mlc-ai/web-llm)</option>
+          <option value="nano">Gemini Nano (Chrome Prompt API)</option>
+        </select>
+        <button id="loadModelBtn" class="btn btn-secondary">モデルロード</button>
+      </div>
+
+      <div class="constraint-card">
+        <label class="constraint-label" for="constrainedDecodingToggle">
+          <input type="checkbox" id="constrainedDecodingToggle" checked>
+          <span>制約デコーディング (Structured Output)</span>
+          <span class="badge-recommended">推奨・デフォルト</span>
+        </label>
+        <p class="constraint-desc">
+          <strong>ON（推奨・デフォルト）:</strong> トークン生成時にJSONスキーマ（CoT先行、Enum値厳密制限）を強制。余計な前置き・解説テキストの混入を抑止します。<br>
+          <strong>OFF（自由生成）:</strong> プロンプトのみで自由に生成。小型モデルにおける出力揺らぎやフォーマット崩れとの差分を比較できます。
+        </p>
+      </div>
+
+      <div class="status-bar" id="statusBar">待機中：「モデルロード」を押してください。</div>
+      <div class="progress-container" id="progressContainer">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <label>症例プリセット（1クリックで入力）:</label>
+      <div class="preset-group">
+        <button class="preset-chip chip-red preset-btn" data-preset="red">Case 1: 最優先群 (RED)</button>
+        <button class="preset-chip chip-yellow preset-btn" data-preset="yellow">Case 2: 待機群 (YELLOW)</button>
+        <button class="preset-chip chip-green preset-btn" data-preset="green">Case 3: 軽症群 (GREEN)</button>
+        <button class="preset-chip chip-black preset-btn" data-preset="black">Case 4: 死亡・不処置 (BLACK)</button>
+      </div>
+
+      <label for="patientInput">傷病者情報（バイタル・身体所見）:</label>
+      <textarea id="patientInput">45歳男性。家屋倒壊現場から救出。自力歩行不可。呼吸数36回/分。橈骨動脈は微弱に触知。呼びかけに対してうめき声のみで従命不能。</textarea>
+
+      <div class="action-row">
+        <span style="font-size:0.82rem; color:var(--text-muted);">WebGPU による完全ローカル推論 (外部送信なし)</span>
+        <button id="triageBtn" class="btn btn-primary" disabled>トリアージ判定実行</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div id="tagDisplay" class="triage-tag-display tag-none">判定待機中</div>
+      <div id="rawOutput" class="output-box">// Fine-Tuning された Gemma 4 が厳密な JSON 形式で判定を出力します...</div>
+    </div>
+
+    <div class="note-box">
+      <strong>STARTトリアージ判定フロー:</strong><br>
+      ① 歩行可能 → 緑（軽症群）<br>
+      ② 自発呼吸なし → 気道確保で再開なしなら黒（不処置）、再開なら赤（最優先）<br>
+      ③ 呼吸数 &lt; 10 または &gt; 29回/分 → 赤（最優先）<br>
+      ④ 橈骨動脈触知不可 または CRT &gt; 2秒 → 赤（最優先）<br>
+      ⑤ 簡単な従命不能（意識障害）→ 赤（最優先） / 従命可能 → 黄（待機群）
+    </div>
+  </div>
+
+  <script type="module">
+    import { pipeline, TextStreamer, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
+    import { Engine } from "https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm";
+    import { PRESETS, parseTriageOutput, highlightJson } from "./triage_parser.js";
+    import { TRIAGE_JSON_SCHEMA, TRIAGE_SYSTEM_PROMPT, createTriageConstraintProcessor } from "./triage_schema.js";
+    import { getEngineUIState, getDecodingModeLabel } from "./triage_ui_state.js";
+    import { prepareChatInputs, createTextGenerator, generateTextStreaming, extractGeneratedText, formatTransformersProgress } from "../01_transformers_js/transformers_runner.js";
+    import { downloadModelWithProgress } from "../02_litert_lm/litert_loader.js";
+    import { checkNanoAvailability, createNanoSession, runNanoPrompt, getCleanNanoSession } from "../00_gemini_nano/nano_runner.js";
+
+    let StructuredOutputProcessor = null;
+    try {
+      const structuredMod = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers-structured-output/+esm");
+      StructuredOutputProcessor = structuredMod.StructuredOutputProcessor;
+    } catch (e) {
+      console.warn("Could not load StructuredOutputProcessor from CDN:", e);
+    }
+
+    if (env) {
+      env.allowLocalModels = true;
+      env.allowRemoteModels = true;
+    }
+
+    const runtimeSelect = document.getElementById("runtime");
+    const loadModelBtn = document.getElementById("loadModelBtn");
+    const statusBar = document.getElementById("statusBar");
+    const progressContainer = document.getElementById("progressContainer");
+    const progressBar = document.getElementById("progressBar");
+    const patientInput = document.getElementById("patientInput");
+    const triageBtn = document.getElementById("triageBtn");
+    const tagDisplay = document.getElementById("tagDisplay");
+    const rawOutput = document.getElementById("rawOutput");
+
+    // プリセットボタンのイベントリスナ
+    document.querySelectorAll(".preset-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const type = btn.getAttribute("data-preset");
+        if (PRESETS[type]) {
+          patientInput.value = PRESETS[type];
+        }
+      });
+    });
+
+    let tfGenerator = null;
+    let litertEngine = null;
+    let webllmEngine = null;
+    let nanoSession = null;
+    let isLoading = false;
+    let lastError = null;
+
+    function updateUIState() {
+      const selectedEngine = runtimeSelect.value;
+      const tfLoaded = tfGenerator !== null;
+      const litertLoaded = litertEngine !== null;
+      const webllmLoaded = webllmEngine !== null;
+      const nanoLoaded = nanoSession !== null;
+      const state = getEngineUIState({ selectedEngine, tfLoaded, litertLoaded, webllmLoaded, nanoLoaded, isLoading });
+
+      loadModelBtn.disabled = !state.canLoad;
+      loadModelBtn.textContent = state.loadBtnText;
+      runtimeSelect.disabled = isLoading;
+      triageBtn.disabled = !state.canRun;
+
+      // LiteRT は制約デコーディング非対応のためトグルを無効化
+      const cdToggle = document.getElementById("constrainedDecodingToggle");
+      cdToggle.disabled = !state.constrainedDecodingAvailable;
+      if (!state.constrainedDecodingAvailable) {
+        cdToggle.checked = false;
+      }
+
+      if (!isLoading) {
+        if (lastError) {
+          statusBar.textContent = lastError;
+        } else {
+          statusBar.textContent = state.statusText;
+        }
+        if (state.isLoaded) {
+          progressContainer.style.display = "none";
+        }
+      }
+    }
+
+    runtimeSelect.addEventListener("change", () => {
+      lastError = null;
+      updateUIState();
+    });
+
+    loadModelBtn.addEventListener("click", async () => {
+      const selected = runtimeSelect.value;
+
+      if (selected !== "nano" && !navigator.gpu) {
+        statusBar.textContent = "エラー: WebGPU がサポートされていません。";
+        return;
+      }
+
+      lastError = null;
+      isLoading = true;
+      updateUIState();
+      progressContainer.style.display = "block";
+      progressBar.style.width = "0%";
+
+      try {
+        if (selected === "transformers") {
+          statusBar.textContent = "Transformers.js ローカルモデルをチェック中...";
+          const LOCAL_PATH = "../dist_onnx";
+          const localCheck = await fetch(`${LOCAL_PATH}/config.json`, { method: "HEAD" }).catch(() => null);
+
+          if (localCheck && localCheck.ok) {
+            statusBar.textContent = "ローカル ONNX モデルを発見！WebGPU へロード中...";
+            env.localModelPath = "../";
+            env.allowLocalModels = true;
+            env.allowRemoteModels = false; // ローカルモデル読込時にリモートへの不正リクエスト(CORSエラー)を抑止
+            tfGenerator = await createTextGenerator(pipeline, "dist_onnx", {
+              onProgress: (p) => {
+                const formatted = formatTransformersProgress(p);
+                statusBar.textContent = formatted.text;
+                if (formatted.percent > 0) {
+                  progressBar.style.width = `${formatted.percent}%`;
+                }
+                if (p.status === "done" && p.file && p.file.includes("onnx_data")) {
+                  statusBar.textContent = "モデル読込完了。WebGPU シェーダーをコンパイル中（初回は数十秒かかります）...";
+                  progressBar.style.width = "100%";
+                }
+              }
+            });
+          } else {
+            statusBar.textContent = "リモートの onnx-community モデルをロード中 (約1.1GB)...";
+            env.allowRemoteModels = true;
+            tfGenerator = await createTextGenerator(pipeline, "onnx-community/gemma-4-E2B-it-ONNX", {
+              onProgress: (p) => {
+                const formatted = formatTransformersProgress(p);
+                statusBar.textContent = formatted.text;
+                if (formatted.percent > 0) {
+                  progressBar.style.width = `${formatted.percent}%`;
+                }
+                if (p.status === "done" && p.file && p.file.includes("onnx_data")) {
+                  statusBar.textContent = "モデル読込完了。WebGPU シェーダーをコンパイル中（初回は数十秒かかります）...";
+                  progressBar.style.width = "100%";
+                }
+              }
+            });
+          }
+          progressBar.style.width = "100%";
+          statusBar.textContent = "Transformers.js モデルのロード完了！";
+        } else if (selected === "litert") {
+          statusBar.textContent = "LiteRT ローカルモデルをチェック中...";
+          const LOCAL_MODEL = "../dist_litert/model.litertlm";
+          const REMOTE_MODEL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm";
+
+          const localCheck = await fetch(LOCAL_MODEL, { method: "HEAD" }).catch(() => null);
+          let modelUrl = LOCAL_MODEL;
+
+          if (localCheck && localCheck.ok) {
+            statusBar.textContent = "ローカルモデルを発見 (1.9GB)！ロード中...";
+            modelUrl = await downloadModelWithProgress(LOCAL_MODEL, (p) => {
+              statusBar.textContent = `ローカル読込: ${p.formatted}`;
+              progressBar.style.width = `${p.percent}%`;
+            });
+          } else {
+            statusBar.textContent = "リモートモデルに接続中 (約1.9GB)...";
+            modelUrl = await downloadModelWithProgress(REMOTE_MODEL, (p) => {
+              statusBar.textContent = p.formatted;
+              progressBar.style.width = `${p.percent}%`;
+            });
+          }
+
+          statusBar.textContent = "LiteRT WebGPU エンジンを初期化中...";
+          progressBar.style.width = "100%";
+          litertEngine = await Engine.create({ model: modelUrl });
+        } else if (selected === "webllm") {
+          statusBar.textContent = "WebLLM (@mlc-ai/web-llm) をロード中...";
+          const { CreateMLCEngine } = await import("https://esm.run/@mlc-ai/web-llm");
+          const MODEL_ID = "gemma-2-2b-it-q4f16_1-MLC";
+          statusBar.textContent = `WebLLM モデル (${MODEL_ID}) をロード中...`;
+          webllmEngine = await CreateMLCEngine(MODEL_ID, {
+            initProgressCallback: (report) => {
+              statusBar.textContent = report.text;
+              const pct = Math.round(report.progress * 100);
+              if (pct > 0) progressBar.style.width = `${pct}%`;
+            }
+          });
+          progressBar.style.width = "100%";
+          statusBar.textContent = "WebLLM エンジンの初期化完了！";
+        } else if (selected === "nano") {
+          statusBar.textContent = "Gemini Nano (Prompt API) の利用可否を確認中...";
+          const avail = await checkNanoAvailability();
+          if (avail.status === "unsupported") {
+            throw new Error(avail.message);
+          }
+          if (avail.status === "unavailable") {
+            throw new Error(avail.message || "Gemini Nano は現在この端末でサポートされていません。");
+          }
+
+          statusBar.textContent = "Gemini Nano セッションを初期化中...";
+          progressBar.style.width = "50%";
+          nanoSession = await createNanoSession({
+            systemPrompt: TRIAGE_SYSTEM_PROMPT,
+            onProgress: (p) => {
+              const pct = Math.round(p.percent);
+              statusBar.textContent = `Gemini Nano ダウンロード中: ${pct}%`;
+              progressBar.style.width = `${pct}%`;
+            }
+          });
+          progressBar.style.width = "100%";
+          statusBar.textContent = "Gemini Nano セッションの初期化完了！";
+        }
+      } catch (err) {
+        lastError = "ロード失敗: " + err.message;
+        statusBar.textContent = lastError;
+      } finally {
+        isLoading = false;
+        updateUIState();
+      }
+    });
+
+    triageBtn.addEventListener("click", async () => {
+      const selected = runtimeSelect.value;
+      if (
+        (selected === "transformers" && !tfGenerator) ||
+        (selected === "litert" && !litertEngine) ||
+        (selected === "webllm" && !webllmEngine) ||
+        (selected === "nano" && !nanoSession)
+      ) {
+        statusBar.textContent = "エラー: 選択されたモデルがロードされていません。";
+        return;
+      }
+
+      triageBtn.disabled = true;
+      rawOutput.textContent = "";
+      tagDisplay.className = "triage-tag-display tag-none";
+      tagDisplay.textContent = "推論中...";
+      const engineLabel = selected === "transformers" 
+        ? "Transformers.js WebGPU" 
+        : selected === "litert" 
+          ? "LiteRT-LM WebGPU" 
+          : selected === "webllm"
+            ? "WebLLM WebGPU"
+            : "Gemini Nano Prompt API";
+      statusBar.textContent = `トリアージ判定を推論中 (${engineLabel})...`;
+
+      const startTime = performance.now();
+      let fullText = "";
+
+      const useConstrainedDecoding = document.getElementById("constrainedDecodingToggle").checked;
+      const SYSTEM_PROMPT = TRIAGE_SYSTEM_PROMPT;
+      const userText = patientInput.value;
+
+      try {
+        if (selected === "transformers") {
+          const messages = prepareChatInputs(userText, SYSTEM_PROMPT);
+
+          const genOptions = { maxNewTokens: 350 };
+          if (useConstrainedDecoding && StructuredOutputProcessor) {
+            const processor = createTriageConstraintProcessor(tfGenerator.tokenizer, StructuredOutputProcessor);
+            genOptions.logits_processor = [processor];
+          }
+
+          const result = await generateTextStreaming(tfGenerator, TextStreamer, messages, (chunk) => {
+            fullText += chunk;
+            rawOutput.innerHTML = highlightJson(fullText);
+            updateTagPreview(fullText);
+          }, genOptions);
+
+          const finalOutput = fullText || result.fullText || extractGeneratedText(result.output);
+          const parsed = parseTriageOutput(finalOutput);
+          if (parsed.category === "NONE") {
+            tagDisplay.className = "triage-tag-display tag-none";
+            tagDisplay.textContent = "⚠️ 非JSON出力（パース不可）";
+          } else {
+            tagDisplay.className = parsed.className;
+            tagDisplay.textContent = parsed.label;
+          }
+          rawOutput.innerHTML = highlightJson(parsed.formattedJson || finalOutput);
+        } else if (selected === "litert") {
+          const conversation = await litertEngine.createConversation({
+            preface: { messages: [{ role: "system", content: SYSTEM_PROMPT }] }
+          });
+
+          const stream = conversation.sendMessageStreaming(userText);
+          for await (const chunk of stream) {
+            const text = chunk.content?.[0]?.text ?? "";
+            if (text) {
+              fullText += text;
+              rawOutput.innerHTML = highlightJson(fullText);
+              updateTagPreview(fullText);
+            }
+          }
+
+          const parsed = parseTriageOutput(fullText);
+          if (parsed.category === "NONE") {
+            tagDisplay.className = "triage-tag-display tag-none";
+            tagDisplay.textContent = "⚠️ 非JSON出力（パース不可）";
+          } else {
+            tagDisplay.className = parsed.className;
+            tagDisplay.textContent = parsed.label;
+          }
+          rawOutput.innerHTML = highlightJson(parsed.formattedJson || fullText);
+        } else if (selected === "webllm") {
+          const reqOptions = {
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: userText }
+            ],
+            stream: true,
+            max_tokens: 350
+          };
+
+          if (useConstrainedDecoding) {
+            reqOptions.response_format = {
+              type: "json_schema",
+              json_schema: {
+                name: "triage_result",
+                schema: TRIAGE_JSON_SCHEMA,
+                strict: true
+              }
+            };
+          }
+
+          const reply = await webllmEngine.chat.completions.create(reqOptions);
+          for await (const chunk of reply) {
+            const delta = chunk.choices[0]?.delta?.content || "";
+            if (delta) {
+              fullText += delta;
+              rawOutput.innerHTML = highlightJson(fullText);
+              updateTagPreview(fullText);
+            }
+          }
+
+          const parsed = parseTriageOutput(fullText);
+          if (parsed.category === "NONE") {
+            tagDisplay.className = "triage-tag-display tag-none";
+            tagDisplay.textContent = "⚠️ 非JSON出力（パース不可）";
+          } else {
+            tagDisplay.className = parsed.className;
+            tagDisplay.textContent = parsed.label;
+          }
+          rawOutput.innerHTML = highlightJson(parsed.formattedJson || fullText);
+        } else {
+          // Gemini Nano (Prompt API)
+          // Chrome の LanguageModel はマルチターンの会話履歴を蓄積するため、
+          // 同じセッションで2回目以降のトリアージを実行すると前回の患者情報が混入し、
+          // さらに文法制約 (responseConstraint) の内部ステートの不整合で "kErrorUnknown" が発生します。
+          // そのため、ロード済みの初期セッション (nanoSession) を複製 (clone) するか
+          // トリアージ判定ごとに独立したクリーンなセッションを生成して推論し、完了後に破棄します。
+          let activeSession = null;
+          try {
+            activeSession = await getCleanNanoSession(nanoSession, { systemPrompt: SYSTEM_PROMPT });
+
+            const promptOptions = {};
+            if (useConstrainedDecoding) {
+              promptOptions.responseConstraint = TRIAGE_JSON_SCHEMA;
+            }
+
+            let result = "";
+            try {
+              result = await runNanoPrompt(activeSession, userText, (chunk) => {
+                fullText += chunk;
+                rawOutput.innerHTML = highlightJson(fullText);
+                updateTagPreview(fullText);
+              }, promptOptions);
+            } catch (promptErr) {
+              if (useConstrainedDecoding && (promptErr.name === "NotSupportedError" || String(promptErr.message).includes("invalid") || String(promptErr.message).includes("kErrorUnknown"))) {
+                statusBar.textContent = "注意: お使いのブラウザでは responseConstraint が非対応または制限されたため、制約なしで再試行中...";
+                fullText = "";
+                if (activeSession && typeof activeSession.destroy === "function") {
+                  try { activeSession.destroy(); } catch (_) {}
+                }
+                activeSession = await getCleanNanoSession(nanoSession, { systemPrompt: SYSTEM_PROMPT });
+                result = await runNanoPrompt(activeSession, userText, (chunk) => {
+                  fullText += chunk;
+                  rawOutput.innerHTML = highlightJson(fullText);
+                  updateTagPreview(fullText);
+                });
+              } else {
+                throw promptErr;
+              }
+            }
+
+            const finalOutput = fullText || result;
+            const parsed = parseTriageOutput(finalOutput);
+            if (parsed.category === "NONE") {
+              tagDisplay.className = "triage-tag-display tag-none";
+              tagDisplay.textContent = "⚠️ 非JSON出力（パース不可）";
+            } else {
+              tagDisplay.className = parsed.className;
+              tagDisplay.textContent = parsed.label;
+            }
+            rawOutput.innerHTML = highlightJson(parsed.formattedJson || finalOutput);
+          } finally {
+            if (activeSession && typeof activeSession.destroy === "function") {
+              try { activeSession.destroy(); } catch (_) {}
+            }
+          }
+        }
+
+        const elapsedSec = ((performance.now() - startTime) / 1000).toFixed(2);
+        const modeLabel = getDecodingModeLabel(useConstrainedDecoding);
+        statusBar.textContent = `判定完了 (${elapsedSec}秒, ${modeLabel})`;
+      } catch (err) {
+        rawOutput.textContent = "エラー発生: " + err.message;
+      } finally {
+        updateUIState();
+      }
+    });
+
+    function updateTagPreview(text) {
+      const parsed = parseTriageOutput(text);
+      tagDisplay.className = parsed.className;
+      tagDisplay.textContent = parsed.label;
+    }
+
+    // 初期化時のUI状態反映
+    updateUIState();
+  </script>
+</body>
+</html>

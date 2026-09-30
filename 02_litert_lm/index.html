@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>02. LiteRT-LM.js + WebGPU (Gemma 4 E2B)</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div class="page-wrapper">
+    <a href="../index.html" class="nav-back">← デモ一覧へ戻る</a>
+
+    <header class="app-header">
+      <span class="badge-tag">Google AI Edge • LiteRT-LM (@litert-lm/core) • WebGPU</span>
+      <h1 class="app-title">LiteRT-LM.js で動かす Gemma 4 E2B</h1>
+      <p class="app-subtitle">
+        Google 公式のオンデバイスランタイム「LiteRT」の LLM 専用 Web エンジンを使って <code>.litertlm</code> を実行します。
+      </p>
+    </header>
+
+    <div class="panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">モデル準備 (.litertlm / 約1.9GB)</span>
+        <button id="loadBtn" class="btn btn-secondary">モデルをロード</button>
+      </div>
+
+      <div class="status-panel">
+        <div id="statusText">待機中：「モデルをロード」を押してください。</div>
+      </div>
+      <div class="progress-container" id="progressContainer">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <label for="prompt">プロンプト入力:</label>
+      <textarea id="prompt">あなたは救急トリアージ判定者です。
+患者: 「38歳女性、自力歩行不可。呼吸数28回/分。橈骨動脈触知可能。簡単な指示に従える。」
+判定と理由を述べてください。</textarea>
+
+      <div style="margin-top: 14px; display: flex; justify-content: flex-end;">
+        <button id="generateBtn" class="btn btn-primary" disabled>推論実行 (Generate)</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <label>生成結果:</label>
+      <div id="output" class="output-box">モデルロード後に生成結果がリアルタイム表示されます...</div>
+    </div>
+
+    <div class="note-box">
+      <strong>技術的ポイント:</strong><br>
+      ・Google の LiteRT-LM は、WebGPU シェーダーを極限まで最適化したブラウザ向け LLM 推論ランタイム。<br>
+      ・<code>dist_litert/model.litertlm</code> を配置することで、ローカルファイルからゼロ秒ロードも可能です。
+    </div>
+  </div>
+
+  <script type="module">
+    import { Engine } from "https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm";
+    import { calculateTokenSpeed } from "../shared/llm_utils.js";
+    import { downloadModelWithProgress } from "./litert_loader.js";
+
+    const REMOTE_MODEL_URL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm";
+    const LOCAL_MODEL_URL = "../dist_litert/model.litertlm";
+
+    const statusText = document.getElementById("statusText");
+    const progressContainer = document.getElementById("progressContainer");
+    const progressBar = document.getElementById("progressBar");
+    const loadBtn = document.getElementById("loadBtn");
+    const generateBtn = document.getElementById("generateBtn");
+    const promptInput = document.getElementById("prompt");
+    const outputEl = document.getElementById("output");
+
+    let engine = null;
+
+    loadBtn.addEventListener("click", async () => {
+      loadBtn.disabled = true;
+
+      if (!navigator.gpu) {
+        statusText.textContent = "エラー: お使いのブラウザは WebGPU をサポートしていません。Chrome 113+ 等をご利用ください。";
+        loadBtn.disabled = false;
+        return;
+      }
+
+      progressContainer.style.display = "block";
+      progressBar.style.width = "0%";
+
+      try {
+        let finalModelUrl = LOCAL_MODEL_URL;
+
+        // 1. まずローカルモデルの存在をチェック
+        statusText.textContent = "ローカルモデルをチェック中...";
+        const localCheck = await fetch(LOCAL_MODEL_URL, { method: "HEAD" }).catch(() => null);
+
+        if (localCheck && localCheck.ok) {
+          statusText.textContent = "ローカルモデルを発見しました！ロード中...";
+        } else {
+          // 2. リモートからプログレス監視付きでダウンロード
+          statusText.textContent = "リモートモデルに接続中 (約1.9GB)...";
+          finalModelUrl = await downloadModelWithProgress(REMOTE_MODEL_URL, (p) => {
+            statusText.textContent = p.formatted;
+            progressBar.style.width = `${p.percent}%`;
+          });
+        }
+
+        statusText.textContent = "LiteRT WebGPU エンジンを初期化中...";
+        progressBar.style.width = "100%";
+
+        engine = await Engine.create({
+          model: finalModelUrl,
+          mainExecutorSettings: {
+            maxNumTokens: 4096,
+          },
+        });
+
+        statusText.textContent = "LiteRT-LM エンジン準備完了！WebGPU 上で待機中。";
+        loadBtn.textContent = "ロード完了";
+        generateBtn.disabled = false;
+        setTimeout(() => {
+          progressContainer.style.display = "none";
+        }, 1200);
+      } catch (err) {
+        statusText.textContent = "ロード失敗: " + err.message;
+        outputEl.textContent = `【エラー詳細】\n${err.message}\n\n※リモートの2GBモデルは回線やCORSの影響を受ける場合があります。Colab等でエクスポートしたモデルを 'dist_litert/model.litertlm' に配置するとローカルから瞬時にロードできます。`;
+        loadBtn.disabled = false;
+      }
+    });
+
+    generateBtn.addEventListener("click", async () => {
+      generateBtn.disabled = true;
+      outputEl.textContent = "";
+      statusText.textContent = "推論中 (LiteRT WebGPU)...";
+
+      const startTime = performance.now();
+      let tokenCount = 0;
+
+      try {
+        const conversation = await engine.createConversation({
+          preface: {
+            messages: [
+              { role: "system", content: "You are a professional medical triage AI assistant." }
+            ]
+          }
+        });
+
+        const stream = conversation.sendMessageStreaming(promptInput.value);
+
+        for await (const chunk of stream) {
+          const text = chunk.content?.[0]?.text ?? "";
+          if (text) {
+            tokenCount++;
+            outputEl.textContent += text;
+          }
+        }
+
+        const elapsedMs = performance.now() - startTime;
+        const speed = calculateTokenSpeed(tokenCount, elapsedMs);
+        statusText.textContent = `生成完了！ (${tokenCount} tokens / ${(elapsedMs / 1000).toFixed(2)}s = ${speed} tok/s)`;
+      } catch (err) {
+        outputEl.textContent = "推論エラー: " + err.message;
+      } finally {
+        generateBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

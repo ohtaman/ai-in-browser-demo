@@ -1,0 +1,27 @@
+[project]
+name = "gemma-browser-triage"
+version = "0.1.0"
+description = "Fine-tuning Gemma 4 for on-device browser triage and exporting to ONNX / LiteRT"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.2.0",
+    "transformers>=4.40.0",
+    "peft>=0.10.0",
+    "trl>=0.8.0",
+    "datasets>=2.18.0",
+    "accelerate>=0.28.0",
+    "bitsandbytes>=0.43.0",
+    "optimum>=1.19.0",
+    "onnx>=1.16.0",
+    "onnxruntime>=1.17.0",
+]
+
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true

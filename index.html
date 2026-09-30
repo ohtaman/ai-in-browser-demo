@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemma Meetup 2026 - Browser LLM Demos</title>
+  <link rel="stylesheet" href="shared/styles.css">
+  <style>
+    .demo-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 10px;
+    }
+    .demo-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 18px 22px;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: var(--shadow-sm);
+    }
+    .demo-card:hover {
+      border-color: var(--accent-blue);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      transform: translateY(-1px);
+    }
+    .demo-card .num {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--accent-blue);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .demo-card h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin: 0;
+      color: var(--text-main);
+    }
+    .demo-card p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .card-footer {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .tag {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-wrapper">
+    <header class="app-header">
+      <span class="badge-tag">Gemma Meetup 2026 [Road to DevFest Tokyo #1]</span>
+      <h1 class="app-title">Transformers.js と LiteRT をつかって Gemma をブラウザで動かそう</h1>
+      <p class="app-subtitle">登壇デモ一覧：Gemini Nano (Prompt API) から自作トリアージ Gemma 4 のブラウザ完全オフライン推論まで</p>
+    </header>
+
+    <div class="demo-list">
+      <a href="00_gemini_nano/index.html" class="demo-card">
+        <span class="num">Demo 00</span>
+        <h2>Gemini Nano on Chrome (Prompt API)</h2>
+        <p>Chrome 内蔵の Built-in AI（ダウンロード不要）を動かす最小限のデモコード。</p>
+        <div class="card-footer">
+          <span class="tag">Chrome Built-in AI</span>
+          <span class="tag">Prompt API</span>
+          <span class="tag">Zero Download</span>
+        </div>
+      </a>
+
+      <a href="01_transformers_js/index.html" class="demo-card">
+        <span class="num">Demo 01</span>
+        <h2>Transformers.js (v3/v4) + WebGPU</h2>
+        <p>Hugging Face エコシステムを活用し、ONNX 量子化された Gemma 4 E2B を WebGPU で実行。</p>
+        <div class="card-footer">
+          <span class="tag">Transformers.js</span>
+          <span class="tag">ONNX Runtime Web</span>
+          <span class="tag">WebGPU</span>
+        </div>
+      </a>
+
+      <a href="02_litert_lm/index.html" class="demo-card">
+        <span class="num">Demo 02</span>
+        <h2>LiteRT-LM.js + WebGPU</h2>
+        <p>Google 公式のオンデバイスランタイム「LiteRT」の LLM 専用エンジンで Gemma 4 E2B を実行。</p>
+        <div class="card-footer">
+          <span class="tag">@litert-lm/core</span>
+          <span class="tag">Google AI Edge</span>
+          <span class="tag">.litertlm</span>
+        </div>
+      </a>
+
+      <a href="04_custom_triage_demo/index.html" class="demo-card">
+        <span class="num">Demo 03</span>
+        <h2>災害時START式トリアージ支援 AI (一括判定)</h2>
+        <p>全バイタルがあらかじめ揃っている前提で、緊急度（赤・黄・緑・黒）を一括判定するベースライン・デモ。</p>
+        <div class="card-footer">
+          <span class="tag">One-shot Classification</span>
+          <span class="tag">JSON Schema</span>
+          <span class="tag">Multi Runtime</span>
+        </div>
+      </a>
+
+      <a href="05_interactive_triage_agent/demo/index.html" class="demo-card" style="border-color: var(--accent-blue); background: #fbfdff;">
+        <span class="num" style="color: var(--accent-blue);">Demo 04 (New / Interactive)</span>
+        <h2>現場対話型 START トリアージ・エージェント (Gemma 4)</h2>
+        <p>「最初から全バイタルは揃わない」現場実態に即し、曖昧な無線報告から臨床所見を抽出して決定木を動的ショートカット推論する対話AI。</p>
+        <div class="card-footer">
+          <span class="tag" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">Multi-turn LoRA (All-Linear)</span>
+          <span class="tag">臨床エンティティ抽出</span>
+          <span class="tag">決定木ショートカット推論</span>
+          <span class="tag">完全オフライン WebGPU</span>
+        </div>
+      </a>
+    </div>
+  </div>
+</body>
+</html>

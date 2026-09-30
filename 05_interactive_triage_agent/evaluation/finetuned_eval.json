@@ -1,0 +1,30 @@
+{
+  "model_path": "./merged_gemma4_interactive_triage",
+  "eval_samples": 62,
+  "total_turns": 176,
+  "format_validity_rate": 0.9943181818181818,
+  "action_accuracy": 0.9943181818181818,
+  "triage_category_accuracy": 0.9838709677419355,
+  "category_breakdown": {
+    "RED": {
+      "accuracy": 0.9722222222222222,
+      "correct": 35,
+      "total": 36
+    },
+    "YELLOW": {
+      "accuracy": 1.0,
+      "correct": 8,
+      "total": 8
+    },
+    "GREEN": {
+      "accuracy": 1.0,
+      "correct": 10,
+      "total": 10
+    },
+    "BLACK": {
+      "accuracy": 1.0,
+      "correct": 8,
+      "total": 8
+    }
+  }
+}

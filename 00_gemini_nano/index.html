@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>00. Gemini Nano on Chrome (LanguageModel API / Chrome 148+)</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div class="page-wrapper">
+    <a href="../index.html" class="nav-back">← デモ一覧へ戻る</a>
+
+    <header class="app-header">
+      <span class="badge-tag">Chrome Built-in AI (Prompt API / Chrome 148+)</span>
+      <h1 class="app-title">Gemini Nano on Chrome (LanguageModel)</h1>
+      <p class="app-subtitle">
+        W3C 標準化仕様 <code>LanguageModel</code> API（Chrome 148+ 正式対応）を使用したブラウザ組み込みAIデモ
+      </p>
+    </header>
+
+    <div class="panel">
+      <div class="status-panel">
+        <div class="status-indicator" id="statusDot"></div>
+        <div id="statusText">環境の利用可否を判定中...</div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <label for="prompt">プロンプト入力:</label>
+        <textarea id="prompt">災害トリアージとは何ですか？3行で簡潔に教えてください。</textarea>
+      </div>
+
+      <div style="margin-top: 14px; display: flex; justify-content: flex-end;">
+        <button id="runBtn" class="btn btn-primary" disabled>推論実行 (Run)</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <label>生成結果:</label>
+      <div id="output" class="output-box">「推論実行」を押すとここにストリーミング表示されます...</div>
+    </div>
+
+    <div class="note-box">
+      <strong>仕様メモ (Chrome 148+):</strong><br>
+      ・従来の実験的名前空間 <code>window.ai.languageModel</code> は非推奨となり、標準のグローバル <code>LanguageModel</code> に移行しました。<br>
+      ・対応環境（Chrome 148+ かつ推奨ハードウェア要件を満たす環境）ではフラグなしで動作します。
+    </div>
+  </div>
+
+  <script type="module">
+    import { checkNanoAvailability, createNanoSession, runNanoPrompt } from "./nano_runner.js";
+
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+    const promptInput = document.getElementById("prompt");
+    const runBtn = document.getElementById("runBtn");
+    const outputEl = document.getElementById("output");
+
+    let currentSession = null;
+
+    // 起動時に最新の Prompt API 利用可否をチェック
+    async function init() {
+      const check = await checkNanoAvailability();
+
+      if (check.status === "available") {
+        statusDot.className = "status-indicator ready";
+        statusText.textContent = `利用可能 (${check.engine}): ${check.message}`;
+        runBtn.disabled = false;
+      } else if (check.status === "downloadable") {
+        statusDot.className = "status-indicator download";
+        statusText.textContent = `ダウンロード準備中 (${check.engine}): 初回実行時にモデルダウンロードが行われます。`;
+        runBtn.disabled = false;
+      } else {
+        statusDot.className = "status-indicator error";
+        statusText.textContent = check.message;
+        outputEl.textContent = `【利用不可】\n${check.message}\n\nお使いのブラウザバージョンが Chrome 148+ であること、および端末のハードウェア要件（RAM 4GB+、空き容量等）をご確認ください。`;
+      }
+    }
+
+    runBtn.addEventListener("click", async () => {
+      runBtn.disabled = true;
+      outputEl.textContent = "";
+
+      try {
+        if (!currentSession) {
+          statusText.textContent = "Gemini Nano セッションを初期化中...";
+          currentSession = await createNanoSession({
+            onProgress: (p) => {
+              statusText.textContent = `モデルダウンロード中: ${p.percent.toFixed(1)}% (${(p.loaded/1024/1024).toFixed(0)}MB / ${(p.total/1024/1024).toFixed(0)}MB)`;
+            }
+          });
+          statusText.textContent = "セッション確立完了。推論中...";
+        } else {
+          statusText.textContent = "推論中...";
+        }
+
+        await runNanoPrompt(currentSession, promptInput.value, (chunk) => {
+          outputEl.textContent += chunk;
+        });
+
+        statusText.textContent = "生成完了！";
+      } catch (err) {
+        outputEl.textContent = "エラー: " + err.message;
+        statusText.textContent = "エラーが発生しました";
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

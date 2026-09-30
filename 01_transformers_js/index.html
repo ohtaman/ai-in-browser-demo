@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>01. Transformers.js + WebGPU (Gemma 4 E2B)</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div class="page-wrapper">
+    <a href="../index.html" class="nav-back">← デモ一覧へ戻る</a>
+
+    <header class="app-header">
+      <span class="badge-tag">Transformers.js (v3/v4) • ONNX Runtime Web • WebGPU</span>
+      <h1 class="app-title">Transformers.js で動かす Gemma 4 E2B</h1>
+      <p class="app-subtitle">
+        Hugging Face エコシステムを活用し、ブラウザの WebGPU で ONNX 量子化モデル（q4f16）を実行します。
+      </p>
+    </header>
+
+    <div class="panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">モデル準備 (Hugging Face Hub / ONNX)</span>
+        <button id="loadBtn" class="btn btn-secondary">モデルをロード (約1.1GB)</button>
+      </div>
+
+      <div class="status-bar">
+        <div id="status">待機中：「モデルをロード」を押してください。</div>
+      </div>
+      <div class="progress-container" id="progressContainer">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <label for="prompt">プロンプト入力:</label>
+      <textarea id="prompt">あなたは救急トリアージ判定者です。
+患者: 「38歳女性、自力歩行不可。呼吸数28回/分。橈骨動脈触知可能。簡単な指示に従える。」
+判定と理由を述べてください。</textarea>
+
+      <div style="margin-top: 14px; display: flex; justify-content: flex-end;">
+        <button id="generateBtn" class="btn btn-primary" disabled>推論実行 (Generate)</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <label>生成結果:</label>
+      <div id="output" class="output-box">モデルロード後に生成結果がリアルタイム表示されます...</div>
+    </div>
+
+    <div class="note-box">
+      <strong>技術的ポイント:</strong><br>
+      ・<code>pipeline('text-generation')</code> を使用し、トークナイズやチャットテンプレートの適用を自動化。<br>
+      ・WebGPU アクセラレーションにより、JavaScript ランタイム単体で高速ストリーミング推論を実行。
+    </div>
+  </div>
+
+  <script type="module">
+    import { pipeline, TextStreamer } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
+    import { calculateTokenSpeed } from "../shared/llm_utils.js";
+    import { prepareChatInputs, createTextGenerator, generateTextStreaming, formatTransformersProgress } from "./transformers_runner.js";
+
+    const MODEL_ID = "onnx-community/gemma-4-E2B-it-ONNX";
+    const statusEl = document.getElementById("status");
+    const progressContainer = document.getElementById("progressContainer");
+    const progressBar = document.getElementById("progressBar");
+    const loadBtn = document.getElementById("loadBtn");
+    const generateBtn = document.getElementById("generateBtn");
+    const promptInput = document.getElementById("prompt");
+    const outputEl = document.getElementById("output");
+
+    let generator = null;
+
+    loadBtn.addEventListener("click", async () => {
+      loadBtn.disabled = true;
+      statusEl.textContent = "WebGPU サポートを確認中...";
+
+      if (!navigator.gpu) {
+        statusEl.textContent = "エラー: お使いのブラウザは WebGPU をサポートしていません。Chrome 113+ 等をご利用ください。";
+        loadBtn.disabled = false;
+        return;
+      }
+
+      progressContainer.style.display = "block";
+      progressBar.style.width = "0%";
+
+      try {
+        statusEl.textContent = `モデル (${MODEL_ID}) をロード中... (初回ダウンロード)`;
+
+        generator = await createTextGenerator(pipeline, MODEL_ID, {
+          onProgress: (p) => {
+            const formatted = formatTransformersProgress(p);
+            statusEl.textContent = formatted.text;
+            progressBar.style.width = `${formatted.percent}%`;
+          }
+        });
+
+        progressBar.style.width = "100%";
+        statusEl.textContent = "モデルのロード完了！WebGPU 上で推論の準備が整いました。";
+        loadBtn.textContent = "ロード完了";
+        generateBtn.disabled = false;
+        setTimeout(() => {
+          progressContainer.style.display = "none";
+        }, 1200);
+      } catch (err) {
+        statusEl.textContent = "ロード失敗: " + err.message;
+        loadBtn.disabled = false;
+      }
+    });
+
+    generateBtn.addEventListener("click", async () => {
+      generateBtn.disabled = true;
+      outputEl.textContent = "";
+      statusEl.textContent = "推論中 (WebGPU)...";
+
+      const startTime = performance.now();
+      let tokenCount = 0;
+
+      try {
+        const messages = prepareChatInputs(promptInput.value);
+
+        const { fullText } = await generateTextStreaming(generator, TextStreamer, messages, (text) => {
+          tokenCount++;
+          outputEl.textContent += text;
+        }, { maxNewTokens: 300 });
+
+        if (!outputEl.textContent && fullText) {
+          outputEl.textContent = fullText;
+        }
+
+        const elapsedMs = performance.now() - startTime;
+        const speed = calculateTokenSpeed(tokenCount, elapsedMs);
+        statusEl.textContent = `生成完了！ (${tokenCount} tokens / ${(elapsedMs / 1000).toFixed(2)}s = ${speed} tok/s)`;
+      } catch (err) {
+        outputEl.textContent = "推論エラー: " + err.message;
+        statusEl.textContent = "エラーが発生しました";
+      } finally {
+        generateBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

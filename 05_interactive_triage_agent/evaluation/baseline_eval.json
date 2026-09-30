@@ -1,0 +1,30 @@
+{
+  "model_path": "google/gemma-4-E2B-it",
+  "eval_samples": 62,
+  "total_turns": 176,
+  "format_validity_rate": 0.9545454545454546,
+  "action_accuracy": 0.6818181818181818,
+  "triage_category_accuracy": 0.3709677419354839,
+  "category_breakdown": {
+    "RED": {
+      "accuracy": 0.2222222222222222,
+      "correct": 8,
+      "total": 36
+    },
+    "YELLOW": {
+      "accuracy": 0.875,
+      "correct": 7,
+      "total": 8
+    },
+    "GREEN": {
+      "accuracy": 0.0,
+      "correct": 0,
+      "total": 10
+    },
+    "BLACK": {
+      "accuracy": 1.0,
+      "correct": 8,
+      "total": 8
+    }
+  }
+}

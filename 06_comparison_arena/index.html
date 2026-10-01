@@ -275,7 +275,10 @@
           <button id="runTfBtn" class="btn btn-primary" style="font-size: 0.78rem; padding: 4px 10px;" disabled>単独実行</button>
         </div>
         <div id="tfOutput" class="output-box">モデルをロードすると結果が表示されます...</div>
-        <div id="tfStatus" style="font-size: 0.75rem; color: var(--text-secondary);">未ロード</div>
+        <div id="tfProgressContainer" style="display: none; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden; margin-top: 6px;">
+          <div id="tfProgressBar" style="width: 0%; height: 100%; background: #e65100; transition: width 0.2s;"></div>
+        </div>
+        <div id="tfStatus" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px;">未ロード</div>
       </div>
 
       <!-- [B] LiteRT-LM -->
@@ -319,7 +322,10 @@
           <button id="runLiteRtBtn" class="btn btn-primary" style="font-size: 0.78rem; padding: 4px 10px;" disabled>単独実行</button>
         </div>
         <div id="litertOutput" class="output-box">モデルをロードすると結果が表示されます...</div>
-        <div id="litertStatus" style="font-size: 0.75rem; color: var(--text-secondary);">未ロード</div>
+        <div id="litertProgressContainer" style="display: none; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden; margin-top: 6px;">
+          <div id="litertProgressBar" style="width: 0%; height: 100%; background: #1a73e8; transition: width 0.2s;"></div>
+        </div>
+        <div id="litertStatus" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px;">未ロード</div>
       </div>
 
     </div>

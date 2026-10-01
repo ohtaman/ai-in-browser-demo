@@ -2,7 +2,7 @@
  * Transformers.js vs LiteRT-LM 比較 Arena ロジック
  * 
  * 公平な比較のため、同一の Gemma Tokenizer による正確なトークン数計測と
- * 文字数（char/s）の併記を行います。
+ * 初回応答時間 (TTFT)、リアルタイムのプログレス表示を行います。
  */
 import { pipeline, TextStreamer, AutoTokenizer } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
 import { Engine } from "https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm";
@@ -30,6 +30,8 @@ const tfSpeed = document.getElementById("tfSpeed");
 const tfTtft = document.getElementById("tfTtft");
 const tfTokens = document.getElementById("tfTokens");
 const tfTime = document.getElementById("tfTime");
+const tfProgressContainer = document.getElementById("tfProgressContainer");
+const tfProgressBar = document.getElementById("tfProgressBar");
 
 // LiteRT-LM DOM
 const loadLiteRtBtn = document.getElementById("loadLiteRtBtn");
@@ -40,6 +42,14 @@ const litertSpeed = document.getElementById("litertSpeed");
 const litertTtft = document.getElementById("litertTtft");
 const litertTokens = document.getElementById("litertTokens");
 const litertTime = document.getElementById("litertTime");
+const litertProgressContainer = document.getElementById("litertProgressContainer");
+const litertProgressBar = document.getElementById("litertProgressBar");
+
+// 環境判定（ローカルサーバー vs GitHub Pages / リモートホスティング）
+export const isLocalEnv = typeof window !== "undefined" && 
+  (window.location.hostname === "localhost" || 
+   window.location.hostname === "127.0.0.1" || 
+   window.location.protocol === "file:");
 
 // モデル設定 (ローカル優先、フォールバックリモート)
 const TF_MODEL_ID = "../dist_onnx";
@@ -52,6 +62,17 @@ let tfGenerator = null;
 let litertEngine = null;
 let sharedTokenizer = null;
 
+// ヘルパー: ローカルモデルの存在確認（GitHub Pages 上で 404 を出さない）
+export async function checkLocalModel(url) {
+  if (!isLocalEnv) return false;
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
 // 共通トークナイザ取得
 export async function getSharedTokenizer() {
   if (sharedTokenizer) return sharedTokenizer;
@@ -59,14 +80,12 @@ export async function getSharedTokenizer() {
     sharedTokenizer = tfGenerator.tokenizer;
     return sharedTokenizer;
   }
+  const hasLocal = await checkLocalModel(`${TF_MODEL_ID}/config.json`);
+  const modelId = hasLocal ? TF_MODEL_ID : TF_REMOTE_ID;
   try {
-    sharedTokenizer = await AutoTokenizer.from_pretrained(TF_MODEL_ID);
+    sharedTokenizer = await AutoTokenizer.from_pretrained(modelId);
   } catch (e) {
-    try {
-      sharedTokenizer = await AutoTokenizer.from_pretrained(TF_REMOTE_ID);
-    } catch (err) {
-      console.warn("トークナイザの事前ロード失敗:", err);
-    }
+    console.warn("トークナイザの事前ロード失敗:", e);
   }
   return sharedTokenizer;
 }
@@ -114,43 +133,69 @@ function updateReadyState() {
   }
 }
 
+function updateTfProgress(text, percent = null) {
+  if (tfStatus) tfStatus.textContent = text;
+  if (tfProgressContainer && tfProgressBar) {
+    if (percent !== null && percent >= 0 && percent <= 100) {
+      tfProgressContainer.style.display = "block";
+      tfProgressBar.style.width = `${percent}%`;
+    } else if (percent === null) {
+      tfProgressContainer.style.display = "none";
+    }
+  }
+}
+
+function updateLiteRtProgress(text, percent = null) {
+  if (litertStatus) litertStatus.textContent = text;
+  if (litertProgressContainer && litertProgressBar) {
+    if (percent !== null && percent >= 0 && percent <= 100) {
+      litertProgressContainer.style.display = "block";
+      litertProgressBar.style.width = `${percent}%`;
+    } else if (percent === null) {
+      litertProgressContainer.style.display = "none";
+    }
+  }
+}
+
 // -------------------------------------------------------------
 // [A] Transformers.js ロード & 実行
 // -------------------------------------------------------------
 loadTfBtn.addEventListener("click", async () => {
   loadTfBtn.disabled = true;
-  tfStatus.textContent = "ロード中 (WebGPU)...";
+  updateTfProgress("ロード準備中...", 0);
 
   try {
-    let modelPath = TF_MODEL_ID;
-    try {
-      tfGenerator = await createTextGenerator(pipeline, modelPath, {
-        onProgress: (p) => {
-          const formatted = formatTransformersProgress(p);
-          tfStatus.textContent = `ローカル: ${formatted.text}`;
-        }
-      });
-    } catch (e) {
-      console.warn("ローカル ONNX ロード失敗、リモートにフォールバック:", e);
-      modelPath = TF_REMOTE_ID;
-      tfGenerator = await createTextGenerator(pipeline, modelPath, {
-        onProgress: (p) => {
-          const formatted = formatTransformersProgress(p);
-          tfStatus.textContent = `リモート: ${formatted.text}`;
-        }
-      });
+    const hasLocal = await checkLocalModel(`${TF_MODEL_ID}/config.json`);
+    const modelPath = hasLocal ? TF_MODEL_ID : TF_REMOTE_ID;
+
+    if (!hasLocal) {
+      updateTfProgress("Hugging Face からダウンロード中 (約1.5GB)...", 0);
+    } else {
+      updateTfProgress("ローカルモデルからロード中...", 50);
     }
+
+    tfGenerator = await createTextGenerator(pipeline, modelPath, {
+      onProgress: (p) => {
+        const formatted = formatTransformersProgress(p);
+        const percent = p.progress ? Math.round(p.progress) : null;
+        updateTfProgress(formatted.text, percent);
+      }
+    });
 
     if (tfGenerator.tokenizer) {
       sharedTokenizer = tfGenerator.tokenizer;
     }
 
-    tfStatus.textContent = "✅ ロード完了 (WebGPU Ready)";
+    updateTfProgress("✅ ロード完了 (WebGPU Ready)", 100);
     loadTfBtn.textContent = "ロード済み";
     runTfBtn.disabled = false;
     updateReadyState();
+
+    setTimeout(() => {
+      if (tfProgressContainer) tfProgressContainer.style.display = "none";
+    }, 1500);
   } catch (err) {
-    tfStatus.textContent = "❌ ロード失敗: " + err.message;
+    updateTfProgress("❌ ロード失敗: " + err.message, null);
     loadTfBtn.disabled = false;
   }
 });
@@ -166,16 +211,14 @@ export async function executeTransformers(promptText) {
 
   try {
     const messages = prepareChatInputs(promptText);
-
-    const { fullText } = await generateTextStreaming(
+    const fullText = await generateTextStreaming(
       tfGenerator,
-      TextStreamer,
       messages,
       (text) => {
-        if (firstTokenTime === null) {
+        if (!firstTokenTime) {
           firstTokenTime = performance.now();
-          const ttftMs = Math.round(firstTokenTime - startTime);
-          tfTtft.textContent = `${ttftMs} ms`;
+          const ttft = Math.round(firstTokenTime - startTime);
+          tfTtft.textContent = `${ttft} ms`;
         }
         tfOutput.textContent += text;
       },
@@ -189,7 +232,6 @@ export async function executeTransformers(promptText) {
     // 正確なトークン数 & 文字数を算出
     const { tokenCount, charCount } = await countTokensAndChars(finalText);
     const speed = calculateTokenSpeed(tokenCount, elapsedMs);
-    const charSpeed = elapsedMs > 0 ? (charCount / (elapsedMs / 1000)).toFixed(1) : "0.0";
 
     tfSpeed.textContent = `${speed} tok/s`;
     tfTokens.textContent = `${tokenCount}`;
@@ -216,24 +258,65 @@ runTfBtn.addEventListener("click", () => {
 // -------------------------------------------------------------
 loadLiteRtBtn.addEventListener("click", async () => {
   loadLiteRtBtn.disabled = true;
-  litertStatus.textContent = "ロード中 (WebGPU)...";
+  updateLiteRtProgress("ロード準備中...", 0);
 
   try {
-    let modelUrl = LITERT_LOCAL_URL;
-    try {
-      litertEngine = await Engine.create({ model: modelUrl });
-    } catch (e) {
-      console.warn("ローカル LiteRT ロード失敗、リモートにフォールバック:", e);
-      modelUrl = LITERT_REMOTE_URL;
-      litertEngine = await Engine.create({ model: modelUrl });
+    const hasLocal = await checkLocalModel(LITERT_LOCAL_URL);
+    
+    if (hasLocal) {
+      updateLiteRtProgress("ローカルモデルから即時ロード中 (WebGPU)...", 50);
+      litertEngine = await Engine.create({ model: LITERT_LOCAL_URL });
+    } else {
+      // リモート Hugging Face からプログレスストリーミングでダウンロード
+      updateLiteRtProgress("Hugging Face に接続中 (約1.9GB)...", 0);
+      const response = await fetch(LITERT_REMOTE_URL);
+      if (!response.ok) {
+        throw new Error(`リモートモデルの取得に失敗しました (HTTP ${response.status}: ${response.statusText})`);
+      }
+
+      const contentLength = response.headers.get("content-length");
+      const totalBytes = contentLength ? parseInt(contentLength, 10) : 2008432640;
+
+      let loadedBytes = 0;
+      let lastTimestamp = performance.now();
+      let lastLoaded = 0;
+
+      // TransformStream でダウンロード進捗を監視しながらそのまま LiteRT Engine に渡す
+      const progressStream = new TransformStream({
+        transform(chunk, controller) {
+          loadedBytes += chunk.length;
+          const now = performance.now();
+          const elapsed = (now - lastTimestamp) / 1000;
+          if (elapsed >= 0.25) {
+            const speedMb = ((loadedBytes - lastLoaded) / elapsed / 1024 / 1024).toFixed(1);
+            lastLoaded = loadedBytes;
+            lastTimestamp = now;
+            const loadedMb = (loadedBytes / 1024 / 1024).toFixed(1);
+            const totalMb = (totalBytes / 1024 / 1024).toFixed(1);
+            const percent = Math.min(100, Math.round((loadedBytes / totalBytes) * 100));
+            updateLiteRtProgress(`DL中: ${loadedMb}/${totalMb}MB (${percent}%) [${speedMb}MB/s]`, percent);
+          }
+          controller.enqueue(chunk);
+        },
+        flush() {
+          updateLiteRtProgress("ダウンロード完了！WebGPU 初期化中...", 100);
+        }
+      });
+
+      const streamedBody = response.body.pipeThrough(progressStream);
+      litertEngine = await Engine.create({ model: streamedBody });
     }
 
-    litertStatus.textContent = "✅ ロード完了 (WebGPU Ready)";
+    updateLiteRtProgress("✅ ロード完了 (WebGPU Ready)", 100);
     loadLiteRtBtn.textContent = "ロード済み";
     runLiteRtBtn.disabled = false;
     updateReadyState();
+
+    setTimeout(() => {
+      if (litertProgressContainer) litertProgressContainer.style.display = "none";
+    }, 1500);
   } catch (err) {
-    litertStatus.textContent = "❌ ロード失敗: " + err.message;
+    updateLiteRtProgress("❌ ロード失敗: " + err.message, null);
     loadLiteRtBtn.disabled = false;
   }
 });
@@ -248,20 +331,16 @@ export async function executeLiteRT(promptText) {
   let firstTokenTime = null;
 
   try {
-    const chat = await litertEngine.createConversation({
-      sessionConfig: {
-        maxOutputTokens: getMaxTokens()
-      }
-    });
-    const stream = chat.sendMessageStreaming(promptText);
+    const conversation = await litertEngine.createConversation();
+    const stream = conversation.sendMessageStreaming(promptText);
 
     for await (const chunk of stream) {
-      const text = chunk.content?.[0]?.text;
+      const text = chunk.content?.[0]?.text ?? "";
       if (text) {
-        if (firstTokenTime === null) {
+        if (!firstTokenTime) {
           firstTokenTime = performance.now();
-          const ttftMs = Math.round(firstTokenTime - startTime);
-          litertTtft.textContent = `${ttftMs} ms`;
+          const ttft = Math.round(firstTokenTime - startTime);
+          litertTtft.textContent = `${ttft} ms`;
         }
         litertOutput.textContent += text;
       }
@@ -271,10 +350,9 @@ export async function executeLiteRT(promptText) {
     const elapsedMs = performance.now() - startTime;
     const ttft = firstTokenTime ? Math.round(firstTokenTime - startTime) : 0;
 
-    // 正確なトークン数 & 文字数を算出（Transformers.js と同一の Gemma Tokenizer 基準）
+    // 正確なトークン数 & 文字数を算出
     const { tokenCount, charCount } = await countTokensAndChars(finalText);
     const speed = calculateTokenSpeed(tokenCount, elapsedMs);
-    const charSpeed = elapsedMs > 0 ? (charCount / (elapsedMs / 1000)).toFixed(1) : "0.0";
 
     litertSpeed.textContent = `${speed} tok/s`;
     litertTokens.textContent = `${tokenCount}`;
@@ -297,30 +375,44 @@ runLiteRtBtn.addEventListener("click", () => {
 
 
 // -------------------------------------------------------------
-// [C] 順次ベンチマーク実行 (Sequential Benchmark)
+// [C] 順次（Sequential）公平ベンチマーク実行
 // -------------------------------------------------------------
 runSequentialBtn.addEventListener("click", async () => {
-  const prompt = promptInput.value;
+  if (!tfGenerator || !litertEngine) return;
+
+  const promptText = promptInput.value.trim();
+  if (!promptText) {
+    alert("プロンプトを入力してください");
+    return;
+  }
+
   runSequentialBtn.disabled = true;
   runTfBtn.disabled = true;
   runLiteRtBtn.disabled = true;
 
-  benchmarkStatus.textContent = "⏳ [Step 1/2] Transformers.js で推論中...";
-  const tfResult = await executeTransformers(prompt);
+  try {
+    // 1. Transformers.js 実行
+    benchmarkStatus.textContent = "⏳ [1/2] Transformers.js ベンチマーク実行中...";
+    const tfResult = await executeTransformers(promptText);
 
-  benchmarkStatus.textContent = "⏳ GPU クールダウン待機中 (500ms)...";
-  await new Promise(r => setTimeout(r, 500));
+    // GPU クールダウン（リソース競合・排熱安定化のためのインターバル）
+    benchmarkStatus.textContent = "☕️ GPU クールダウン中 (500ms)...";
+    await new Promise(r => setTimeout(r, 500));
 
-  benchmarkStatus.textContent = "⏳ [Step 2/2] LiteRT-LM で推論中...";
-  const litertResult = await executeLiteRT(prompt);
+    // 2. LiteRT-LM 実行
+    benchmarkStatus.textContent = "⏳ [2/2] LiteRT-LM ベンチマーク実行中...";
+    const litertResult = await executeLiteRT(promptText);
 
-  if (tfResult && litertResult) {
-    benchmarkStatus.textContent = `🏁 完了！ Transformers: ${tfResult.speed} tok/s | LiteRT: ${litertResult.speed} tok/s`;
-  } else {
-    benchmarkStatus.textContent = "ベンチマーク終了（一部でエラーが発生しました）";
+    if (tfResult && litertResult) {
+      benchmarkStatus.textContent = `🏁 完了！ Transformers: ${tfResult.speed} tok/s | LiteRT: ${litertResult.speed} tok/s`;
+    } else {
+      benchmarkStatus.textContent = "ベンチマーク終了（一部でエラーが発生しました）";
+    }
+  } catch (err) {
+    benchmarkStatus.textContent = "ベンチマーク中断: " + err.message;
+  } finally {
+    runSequentialBtn.disabled = false;
+    runTfBtn.disabled = false;
+    runLiteRtBtn.disabled = false;
   }
-
-  runSequentialBtn.disabled = false;
-  runTfBtn.disabled = false;
-  runLiteRtBtn.disabled = false;
 });

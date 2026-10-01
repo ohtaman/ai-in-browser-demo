@@ -144,14 +144,60 @@
       color: var(--text-main);
       font-weight: 500;
     }
+    .header-with-qr {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+    }
+    .header-main {
+      flex: 1;
+    }
+    .header-qr-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 8px 10px;
+      box-shadow: var(--shadow-sm);
+      flex-shrink: 0;
+    }
+    .header-qr-card img {
+      width: 84px;
+      height: 84px;
+      display: block;
+      border-radius: 4px;
+    }
+    .header-qr-card .qr-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--accent-blue);
+      margin-top: 4px;
+    }
+    @media (max-width: 600px) {
+      .header-with-qr {
+        flex-direction: column;
+      }
+      .header-qr-card {
+        align-self: flex-start;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="page-wrapper" style="max-width: 1080px;">
-    <header class="app-header">
-      <span class="badge-tag">Gemma Meetup 2026 [Road to DevFest Tokyo #1]</span>
-      <h1 class="app-title">Transformers.js vs LiteRT-LM 比較 Playground</h1>
-      <p class="app-subtitle">同等スペック（Gemma 4 E2B / 4-bit 量子化）のブラウザ WebGPU 直接対決・公平比較</p>
+    <header class="app-header header-with-qr">
+      <div class="header-main">
+        <span class="badge-tag">Gemma Meetup 2026 [Road to DevFest Tokyo #1]</span>
+        <h1 class="app-title">Transformers.js vs LiteRT-LM 比較 Playground</h1>
+        <p class="app-subtitle">同等スペック（Gemma 4 E2B / 4-bit 量子化）のブラウザ WebGPU 直接対決・公平比較</p>
+      </div>
+      <div class="header-qr-card">
+        <img src="./qr_arena.png" alt="デモURLのQRコード" width="84" height="84">
+        <span class="qr-label">手元で試す</span>
+      </div>
     </header>
 
     <!-- プロンプト入力セクション -->

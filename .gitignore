@@ -12,20 +12,20 @@ __pycache__/
 .pytest_cache/
 
 # Large Model Weights & Binary Checkpoints (do NOT commit GB-scale binaries)
-dist_onnx
-dist_onnx/
-dist_litert
-dist_litert/
+# dist_onnx
+# dist_onnx/
+# dist_litert
+# dist_litert/
 merged_gemma4_triage
 merged_gemma4_triage/
 merged_gemma4_interactive_triage
 merged_gemma4_interactive_triage/
-*.onnx
-*.onnx_data
-*.safetensors
-*.litertlm
-*.bin
-*.tflite
+# *.onnx
+# *.onnx_data
+# *.safetensors
+# *.litertlm
+# *.bin
+# *.tflite
 
 # Test & Coverage
 coverage/

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemma 4 Browser Arena: Transformers.js vs LiteRT-LM</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+  <style>
+    .arena-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 16px;
+    }
+    @media (max-width: 900px) {
+      .arena-container {
+        grid-template-columns: 1fr;
+      }
+    }
+    .engine-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: var(--shadow-sm);
+    }
+    .engine-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-light);
+      padding-bottom: 10px;
+    }
+    .engine-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .engine-badge {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .badge-hf {
+      background: #fff3e0;
+      color: #e65100;
+      border: 1px solid #ffe0b2;
+    }
+    .badge-google {
+      background: #e8f0fe;
+      color: #1a73e8;
+      border: 1px solid #d2e3fc;
+    }
+    .spec-table {
+      font-size: 0.78rem;
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 4px;
+    }
+    .spec-table td {
+      padding: 4px 6px;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .spec-table td:first-child {
+      color: var(--text-secondary);
+      width: 35%;
+      font-weight: 500;
+    }
+    .metrics-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      border-radius: 6px;
+      padding: 10px;
+    }
+    .metric-item {
+      display: flex;
+      flex-direction: column;
+    }
+    .metric-label {
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+    }
+    .metric-val {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--accent-blue);
+    }
+    .output-box {
+      min-height: 140px;
+      max-height: 240px;
+      overflow-y: auto;
+      background: #fafafa;
+      border: 1px solid var(--border-light);
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      font-family: inherit;
+    }
+    .preset-btn-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .preset-btn {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .preset-btn:hover {
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+      background: #f8faff;
+    }
+    .benchmark-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #f1f3f4;
+      border-radius: 8px;
+      padding: 12px 18px;
+      margin-top: 14px;
+      gap: 12px;
+    }
+    .benchmark-status {
+      font-size: 0.85rem;
+      color: var(--text-main);
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-wrapper" style="max-width: 1080px;">
+    <header class="app-header">
+      <span class="badge-tag">Gemma Meetup 2026 [Road to DevFest Tokyo #1]</span>
+      <h1 class="app-title">Transformers.js vs LiteRT-LM 比較 Playground</h1>
+      <p class="app-subtitle">同等スペック（Gemma 4 E2B / 4-bit 量子化）のブラウザ WebGPU 直接対決・公平比較</p>
+    </header>
+
+    <!-- プロンプト入力セクション -->
+    <div class="panel">
+      <label for="promptInput" style="font-weight: 600;">共通プロンプト入力:</label>
+      <textarea id="promptInput" rows="2" style="width: 100%; border: 1px solid var(--border-light); border-radius: 6px; padding: 10px; font-family: inherit; font-size: 0.95rem; box-sizing: border-box;">ブラウザで LLM を動かすメリットを 3 つ教えて</textarea>
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px;">
+        <div class="preset-btn-group" style="margin-top: 0;">
+          <span style="font-size: 0.75rem; color: var(--text-secondary); align-self: center;">プリセット:</span>
+          <button class="preset-btn" data-text="ブラウザで LLM を動かすメリットを 3 つ教えて">ブラウザ推論のメリット</button>
+          <button class="preset-btn" data-text="Google のオープンモデル Gemma 4 の特徴を簡潔に教えて">Gemma 4 の特徴</button>
+          <button class="preset-btn" data-text="JavaScript でフィボナッチ数を計算する関数を書いて">JSコード生成</button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <label for="maxTokensInput" style="font-size: 0.78rem; color: var(--text-secondary); font-weight: 500;">Max Tokens:</label>
+          <input type="number" id="maxTokensInput" value="2048" min="64" max="4096" step="128" style="width: 80px; padding: 4px 8px; font-size: 0.82rem; border: 1px solid var(--border-light); border-radius: 4px; box-sizing: border-box;">
+        </div>
+      </div>
+
+      <div class="benchmark-bar">
+        <div class="benchmark-status" id="benchmarkStatus">両モデルのロード状態を確認してください。</div>
+        <div style="display: flex; gap: 10px;">
+          <button id="runSequentialBtn" class="btn btn-primary" style="background-color: #1a73e8;" disabled>
+            ⚡️ 順次ベンチマーク実行 (Sequential)
+          </button>
+        </div>
+      </div>
+      <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 6px; text-align: right;">
+        ※ 公平な測定のため、GPUリソースを奪い合わない「順次（A ➔ B）実行」を行います。
+      </div>
+    </div>
+
+    <!-- 2 カラム Arena -->
+    <div class="arena-container">
+      
+      <!-- [A] Transformers.js -->
+      <div class="engine-card">
+        <div class="engine-header">
+          <div class="engine-title">
+            <span>Transformers.js</span>
+            <span class="engine-badge badge-hf">Hugging Face</span>
+          </div>
+          <button id="loadTfBtn" class="btn btn-secondary" style="font-size: 0.8rem; padding: 4px 10px;">モデルロード</button>
+        </div>
+
+        <table class="spec-table">
+          <tr><td>ベースモデル</td><td>Gemma 4 E2B-it</td></tr>
+          <tr><td>量子化仕様</td><td>INT4 (q4f16) / MatMulNBits</td></tr>
+          <tr><td>推論エンジン</td><td>ONNX Runtime Web (WebGPU)</td></tr>
+          <tr><td>パッケージ</td><td>ONNX + 分割外部データ (約1.5GB)</td></tr>
+        </table>
+
+        <div class="metrics-panel">
+          <div class="metric-item">
+            <span class="metric-label">生成速度</span>
+            <span class="metric-val" id="tfSpeed">- tok/s</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">初回トークン (TTFT)</span>
+            <span class="metric-val" id="tfTtft">- ms</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">生成トークン数</span>
+            <span class="metric-val" id="tfTokens">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">総所要時間</span>
+            <span class="metric-val" id="tfTime">- s</span>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.78rem; font-weight: 600;">生成出力:</span>
+          <button id="runTfBtn" class="btn btn-primary" style="font-size: 0.78rem; padding: 4px 10px;" disabled>単独実行</button>
+        </div>
+        <div id="tfOutput" class="output-box">モデルをロードすると結果が表示されます...</div>
+        <div id="tfStatus" style="font-size: 0.75rem; color: var(--text-secondary);">未ロード</div>
+      </div>
+
+      <!-- [B] LiteRT-LM -->
+      <div class="engine-card">
+        <div class="engine-header">
+          <div class="engine-title">
+            <span>LiteRT-LM</span>
+            <span class="engine-badge badge-google">Google AI Edge</span>
+          </div>
+          <button id="loadLiteRtBtn" class="btn btn-secondary" style="font-size: 0.8rem; padding: 4px 10px;">モデルロード</button>
+        </div>
+
+        <table class="spec-table">
+          <tr><td>ベースモデル</td><td>Gemma 4 E2B-it</td></tr>
+          <tr><td>量子化仕様</td><td>4-bit 級 混合量子化 (2/4/8-bit Mixed)</td></tr>
+          <tr><td>推論エンジン</td><td>LiteRT C++ コア (Wasm + WebGPU)</td></tr>
+          <tr><td>パッケージ</td><td>単一バイナリ (.litertlm 約1.9GB)</td></tr>
+        </table>
+
+        <div class="metrics-panel">
+          <div class="metric-item">
+            <span class="metric-label">生成速度</span>
+            <span class="metric-val" id="litertSpeed">- tok/s</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">初回トークン (TTFT)</span>
+            <span class="metric-val" id="litertTtft">- ms</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">生成トークン数</span>
+            <span class="metric-val" id="litertTokens">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">総所要時間</span>
+            <span class="metric-val" id="litertTime">- s</span>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.78rem; font-weight: 600;">生成出力:</span>
+          <button id="runLiteRtBtn" class="btn btn-primary" style="font-size: 0.78rem; padding: 4px 10px;" disabled>単独実行</button>
+        </div>
+        <div id="litertOutput" class="output-box">モデルをロードすると結果が表示されます...</div>
+        <div id="litertStatus" style="font-size: 0.75rem; color: var(--text-secondary);">未ロード</div>
+      </div>
+
+    </div>
+  </div>
+
+  <script type="module" src="./arena_app.js"></script>
+</body>
+</html>

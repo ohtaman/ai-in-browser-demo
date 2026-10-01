@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
 import path from "node:path";
-import fs from "node:fs";
 import { createServer } from "./server.js";
 
 describe("Robust Static File Server with Flow Control & Range Support", () => {
@@ -36,19 +35,10 @@ describe("Robust Static File Server with Flow Control & Range Support", () => {
     expect(text.length).toBe(100);
   });
 
-  it("supports HEAD requests with valid Content-Length", async () => {
-    const res = await fetch(`${BASE_URL}/index.html`, { method: "HEAD" });
+  it("serves large binary models (HEAD request returns valid Content-Length)", async () => {
+    const res = await fetch(`${BASE_URL}/dist_litert/model.litertlm`, { method: "HEAD" });
     expect(res.status).toBe(200);
     const length = Number(res.headers.get("content-length"));
-    expect(length).toBeGreaterThan(0);
-
-    // If local compiled binary model exists, verify it as well
-    const litertPath = path.join(__dirname, "dist_litert", "model.litertlm");
-    if (fs.existsSync(litertPath)) {
-      const modelRes = await fetch(`${BASE_URL}/dist_litert/model.litertlm`, { method: "HEAD" });
-      expect(modelRes.status).toBe(200);
-      const modelLength = Number(modelRes.headers.get("content-length"));
-      expect(modelLength).toBeGreaterThan(500 * 1024 * 1024);
-    }
+    expect(length).toBeGreaterThan(500 * 1024 * 1024);
   });
 });

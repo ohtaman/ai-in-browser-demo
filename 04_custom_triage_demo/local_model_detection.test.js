@@ -12,29 +12,27 @@ describe("Local Compiled Models Detection & Placement", () => {
   const onnxTokenizerFile = path.join(distOnnxDir, "tokenizer.json");
   const onnxModelFile = path.join(distOnnxDir, "onnx", "decoder_model_merged_q4f16.onnx");
 
-  it("verifies LiteRT-LM local compiled model if present", () => {
-    if (!fs.existsSync(litertModelFile)) {
-      console.log("ℹ️ dist_litert/model.litertlm is optional in repo (downloaded on demand or fine-tuned)");
-      return;
-    }
+  it("verifies LiteRT-LM local compiled model exists and has valid size (> 500MB)", () => {
+    expect(fs.existsSync(litertModelFile), `Expected ${litertModelFile} to exist`).toBe(true);
     const stats = fs.statSync(litertModelFile);
     const sizeMb = stats.size / (1024 * 1024);
     expect(sizeMb).toBeGreaterThan(500);
   });
 
-  it("verifies Transformers.js ONNX local compiled model and configs if present", () => {
-    if (!fs.existsSync(onnxConfigFile)) {
-      console.log("ℹ️ dist_onnx/ is optional in repo (loaded from HuggingFace on demand)");
-      return;
-    }
-    expect(fs.existsSync(onnxConfigFile)).toBe(true);
-    expect(fs.existsSync(onnxTokenizerFile)).toBe(true);
-    expect(fs.existsSync(onnxModelFile)).toBe(true);
+  it("verifies Transformers.js ONNX local compiled model and configs exist", () => {
+    expect(fs.existsSync(onnxConfigFile), `Expected ${onnxConfigFile} to exist`).toBe(true);
+    expect(fs.existsSync(onnxTokenizerFile), `Expected ${onnxTokenizerFile} to exist`).toBe(true);
+    expect(fs.existsSync(onnxModelFile), `Expected ${onnxModelFile} to exist`).toBe(true);
   });
 
-  it("verifies server handles local model paths or falls back gracefully", async () => {
-    const res = await fetch("http://localhost:8080/04_custom_triage_demo/index.html");
-    expect(res.status).toBe(200);
+  it("verifies local models are served over HTTP server with 200 OK", async () => {
+    const litertRes = await fetch("http://localhost:8080/dist_litert/model.litertlm", { method: "HEAD" });
+    expect(litertRes.status).toBe(200);
+
+    const onnxRes = await fetch("http://localhost:8080/dist_onnx/config.json", { method: "GET" });
+    expect(onnxRes.status).toBe(200);
+    const configData = await onnxRes.json();
+    expect(configData.model_type || configData.architectures).toBeDefined();
   });
 
   it("verifies index.html has Constrained Decoding enabled by default with contrast descriptions", () => {
@@ -53,16 +51,19 @@ describe("Local Compiled Models Detection & Placement", () => {
   it("verifies index.html inline ES module script has no syntax errors", () => {
     const htmlPath = path.join(__dirname, "index.html");
     const html = fs.readFileSync(htmlPath, "utf-8");
+    const scriptMatch = html.match(/<script type="module">([\s\S]*?)<\/script>/);
+    expect(scriptMatch).toBeTruthy();
 
-    const match = html.match(/<script type="module">([\s\S]*?)<\/script>/);
-    expect(match).not.toBeNull();
-    const scriptContent = match[1];
-
-    expect(scriptContent).toContain('import { pipeline, TextStreamer, env }');
-    expect(scriptContent).toContain('import { Engine }');
-    expect(scriptContent).toContain('import { PRESETS, parseTriageOutput');
-    expect(scriptContent).toContain('import { TRIAGE_JSON_SCHEMA, TRIAGE_SYSTEM_PROMPT');
-    expect(scriptContent).toContain('import { getEngineUIState, getDecodingModeLabel }');
+    const tmpFile = path.join(__dirname, "temp_syntax_check.mjs");
+    fs.writeFileSync(tmpFile, scriptMatch[1], "utf-8");
+    try {
+      const { execSync } = require("child_process");
+      execSync(`node --check "${tmpFile}"`, { stdio: "pipe" });
+    } finally {
+      if (fs.existsSync(tmpFile)) {
+        fs.unlinkSync(tmpFile);
+      }
+    }
   });
 
   it("verifies index.html uses isolated session with getCleanNanoSession and destroy for Gemini Nano", () => {
@@ -70,6 +71,11 @@ describe("Local Compiled Models Detection & Placement", () => {
     const html = fs.readFileSync(htmlPath, "utf-8");
 
     expect(html).toContain("getCleanNanoSession");
+    expect(html).toContain("activeSession = await getCleanNanoSession(nanoSession");
     expect(html).toContain("activeSession.destroy()");
   });
 });
+
+
+
+
